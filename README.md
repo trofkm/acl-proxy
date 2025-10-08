@@ -64,8 +64,8 @@ curl -H "Authorization: Bearer <your_token>" \
 - `GET /healthz` → `ok` when Redis is reachable
 
 - Admin UI
-  - `GET /` — list tokens and allowed hosts
-  - `POST /create_token` (form field `hosts`)
+  - `GET /` — list tokens and allowed hosts, email, comment, TTL
+  - `POST /create_token` (form fields: `hosts`, optional `email`, `comment`, `ttl_seconds`)
   - `POST /delete_token` (form field `token`)
 
 ### Security & Data Model

@@ -21,9 +21,9 @@ services:
       - PEPPER=${PEPPER}
       - ADMIN_USER=${ADMIN_USER}
       - ADMIN_PASS=${ADMIN_PASS}
-      - TOKEN_TTL_SECONDS=0
-      - RATE_LIMIT_WINDOW_SEC=1
-      - RATE_LIMIT_MAX=20
+      - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS}
+      - RATE_LIMIT_WINDOW_SEC=${RATE_LIMIT_WINDOW_SEC}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX}
     ports:
       - "8000:8000"
     depends_on:

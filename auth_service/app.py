@@ -160,12 +160,42 @@ async def index(request: Request, _: None = Depends(admin_guard)) -> HTMLRespons
         token_value = key.split(":", 1)[1]
         data = redis_client.hgetall(key)
         ttl_seconds = redis_client.ttl(key)
-        tokens.append({"token": token_value, "hosts": data.get("hosts", ""), "ttl": ttl_seconds})
-    return templates.TemplateResponse("index.html", {"request": request, "tokens": tokens})
+        created_raw = data.get("created_at", "")
+        created_iso = ""
+        created_ts = 0
+        if created_raw:
+            try:
+                created_ts = int(created_raw)
+                created_iso = time.strftime("%Y-%m-%d %H:%M", time.gmtime(created_ts))
+            except Exception:
+                created_iso = ""
+        tokens.append({
+            "token": token_value,
+            "hosts": data.get("hosts", ""),
+            "email": data.get("email", ""),
+            "comment": data.get("comment", ""),
+            "created_at": created_iso,
+            "_created_ts": created_ts,
+            "ttl": ttl_seconds,
+        })
+    # Sort by creation timestamp ascending (older first)
+    tokens.sort(key=lambda t: t.get("_created_ts", 0))
+
+    default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0") or 0)
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "tokens": tokens, "default_ttl": default_ttl},
+    )
 
 
 @app.post("/create_token")
-async def create_token(hosts: str = Form(...), ttl_seconds: Optional[int] = Form(None), _: None = Depends(admin_guard)) -> JSONResponse:
+async def create_token(
+    hosts: str = Form(...),
+    ttl_seconds: Optional[str] = Form(None),  # accept raw string; parse if provided
+    email: Optional[str] = Form(None),
+    comment: Optional[str] = Form(None),
+    _: None = Depends(admin_guard),
+) -> JSONResponse:
     # Generate raw token returned to user once
     raw_token = secrets.token_urlsafe(32)
     pepper = get_env("PEPPER", "")
@@ -174,10 +204,21 @@ async def create_token(hosts: str = Form(...), ttl_seconds: Optional[int] = Form
     token_hash_value = hash_token(raw_token, pepper)
 
     key = f"tokens:{token_hash_value}"
-    redis_client.hset(key, mapping={"hosts": hosts})
+    redis_client.hset(key, mapping={
+        "hosts": hosts,
+        "email": (email or ""),
+        "comment": (comment or ""),
+        "created_at": str(int(time.time())),
+    })
     # Optional TTL per token
-    default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0"))
-    ttl_effective = ttl_seconds if ttl_seconds and ttl_seconds > 0 else default_ttl
+    default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0") or 0)
+    parsed_ttl: int = 0
+    if ttl_seconds is not None and ttl_seconds != "":
+        try:
+            parsed_ttl = int(ttl_seconds)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="ttl_seconds must be integer")
+    ttl_effective = parsed_ttl if parsed_ttl > 0 else default_ttl
     if ttl_effective and ttl_effective > 0:
         redis_client.expire(key, ttl_effective)
 

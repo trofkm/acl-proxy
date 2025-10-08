@@ -1,0 +1,30 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: auth-middleware
+  namespace: default
+spec:
+  forwardAuth:
+    address: "http://auth-service.default.svc.cluster.local:8000/auth"
+    trustForwardHeader: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: firecrawl
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.middlewares: default-auth-middleware@kubernetescrd
+spec:
+  rules:
+    - host: firecrawl.trofkm.ru
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: firecrawl-service
+                port:
+                  number: 80

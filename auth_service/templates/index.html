@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Token Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+    h1 { margin-bottom: 12px; }
+    form { margin: 12px 0; }
+    input[type="text"] { width: 420px; max-width: 100%; padding: 8px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 8px 0; border-bottom: 1px solid #eee; }
+    .muted { color: #666; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+  </head>
+<body>
+  <h1>Token Manager</h1>
+  <form method="post" action="/create_token">
+    <label>
+      Hosts (comma-separated):
+      <input type="text" name="hosts" placeholder="example.com,firecrawl.trofkm.ru" required>
+    </label>
+    <button type="submit">Create Token</button>
+  </form>
+
+  <h2>Current Tokens</h2>
+  <ul>
+  {% for t in tokens %}
+    <li>
+      <span class="muted">{{ t.token[:8] }}...</span>
+      → {{ t.hosts }}
+      <form method="post" action="/delete_token" style="display:inline">
+        <input type="hidden" name="token" value="{{ t.token }}" />
+        <button type="submit">Delete</button>
+      </form>
+    </li>
+  {% endfor %}
+  </ul>
+</body>
+</html>
+
+

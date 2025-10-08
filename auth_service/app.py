@@ -1,19 +1,38 @@
 import os
-from typing import List
+import time
+import base64
+import hashlib
+from typing import List, Optional
 
-from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi import FastAPI, Request, HTTPException, Form, Depends
 from fastapi.responses import PlainTextResponse, JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
 import redis
 
 
 def get_redis_client() -> redis.Redis:
+    use_tls = os.getenv("REDIS_TLS", "false").lower() in {"1", "true", "yes"}
+    tls_skip_verify = os.getenv("REDIS_TLS_SKIP_VERIFY", "false").lower() in {"1", "true", "yes"}
+    ssl_params = {}
+    if use_tls:
+        ssl_params.update({
+            "ssl": True,
+            "ssl_cert_reqs": None if tls_skip_verify else "required",
+        })
+
+    password = os.getenv("REDIS_PASSWORD")
+    username = os.getenv("REDIS_USERNAME")
+
     return redis.Redis(
         host=os.getenv("REDIS_HOST", "localhost"),
         port=int(os.getenv("REDIS_PORT", "6379")),
         db=int(os.getenv("REDIS_DB", "0")),
+        username=username,
+        password=password,
         decode_responses=True,
+        **ssl_params,
     )
 
 
@@ -21,6 +40,31 @@ redis_client = get_redis_client()
 
 app = FastAPI(title="ACL Proxy Auth Service", version="0.1.0")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+security = HTTPBasic()
+
+
+def get_env(name: str, default: Optional[str] = None) -> Optional[str]:
+    value = os.getenv(name)
+    return value if value is not None else default
+
+
+def hash_token(raw_token: str, pepper: str) -> str:
+    # Derive stable hash for storage. Never store raw tokens.
+    digest = hashlib.sha256((raw_token + pepper).encode("utf-8")).hexdigest()
+    return digest
+
+
+def admin_guard(credentials: HTTPBasicCredentials = Depends(security)) -> None:
+    admin_user = get_env("ADMIN_USER", "admin")
+    admin_pass = get_env("ADMIN_PASS")
+    if not admin_pass:
+        # If not configured, deny rather than allow
+        raise HTTPException(status_code=503, detail="admin auth not configured")
+
+    correct = credentials.username == admin_user and secrets.compare_digest(credentials.password, admin_pass)
+    if not correct:
+        # Trigger browser auth prompt
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
@@ -50,8 +94,27 @@ async def auth(request: Request) -> str:
     if not token:
         raise HTTPException(status_code=401, detail="empty token")
 
-    # Load token data from redis
-    token_key = f"tokens:{token}"
+    # Hash token with pepper
+    pepper = get_env("PEPPER", "")
+    if not pepper:
+        raise HTTPException(status_code=503, detail="server not initialized")
+
+    token_hash = hash_token(token, pepper)
+
+    # Rate limiting (per token hash)
+    window_sec = int(get_env("RATE_LIMIT_WINDOW_SEC", "1"))
+    max_hits = int(get_env("RATE_LIMIT_MAX", "20"))
+    now = int(time.time())
+    window_bucket = now - (now % window_sec)
+    rl_key = f"ratelimit:{token_hash}:{window_bucket}"
+    current = redis_client.incr(rl_key)
+    if current == 1:
+        redis_client.expire(rl_key, window_sec + 1)
+    if current > max_hits:
+        raise HTTPException(status_code=429, detail="rate limit exceeded")
+
+    # Load token data from redis using hash key
+    token_key = f"tokens:{token_hash}"
     token_data = redis_client.hgetall(token_key)
     if not token_data:
         raise HTTPException(status_code=401, detail="invalid token")
@@ -91,24 +154,38 @@ async def debug_token(token: str) -> JSONResponse:
 
 # --- Admin UI ---
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request) -> HTMLResponse:
+async def index(request: Request, _: None = Depends(admin_guard)) -> HTMLResponse:
     tokens = []
     for key in redis_client.scan_iter("tokens:*"):
         token_value = key.split(":", 1)[1]
         data = redis_client.hgetall(key)
-        tokens.append({"token": token_value, "hosts": data.get("hosts", "")})
+        ttl_seconds = redis_client.ttl(key)
+        tokens.append({"token": token_value, "hosts": data.get("hosts", ""), "ttl": ttl_seconds})
     return templates.TemplateResponse("index.html", {"request": request, "tokens": tokens})
 
 
 @app.post("/create_token")
-async def create_token(hosts: str = Form(...)) -> JSONResponse:
-    token = secrets.token_urlsafe(32)
-    redis_client.hset(f"tokens:{token}", mapping={"hosts": hosts})
-    return JSONResponse({"token": token})
+async def create_token(hosts: str = Form(...), ttl_seconds: Optional[int] = Form(None), _: None = Depends(admin_guard)) -> JSONResponse:
+    # Generate raw token returned to user once
+    raw_token = secrets.token_urlsafe(32)
+    pepper = get_env("PEPPER", "")
+    if not pepper:
+        raise HTTPException(status_code=503, detail="server not initialized")
+    token_hash_value = hash_token(raw_token, pepper)
+
+    key = f"tokens:{token_hash_value}"
+    redis_client.hset(key, mapping={"hosts": hosts})
+    # Optional TTL per token
+    default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0"))
+    ttl_effective = ttl_seconds if ttl_seconds and ttl_seconds > 0 else default_ttl
+    if ttl_effective and ttl_effective > 0:
+        redis_client.expire(key, ttl_effective)
+
+    return JSONResponse({"token": raw_token, "hash": token_hash_value})
 
 
 @app.post("/delete_token")
-async def delete_token(token: str = Form(...)) -> RedirectResponse:
+async def delete_token(token: str = Form(...), _: None = Depends(admin_guard)) -> RedirectResponse:
     redis_client.delete(f"tokens:{token}")
     return RedirectResponse(url="/", status_code=303)
 

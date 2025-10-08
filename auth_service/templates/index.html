@@ -22,6 +22,10 @@
       Hosts (comma-separated):
       <input type="text" name="hosts" placeholder="example.com,firecrawl.trofkm.ru" required>
     </label>
+    <label>
+      TTL seconds (optional):
+      <input type="text" name="ttl_seconds" placeholder="3600">
+    </label>
     <button type="submit">Create Token</button>
   </form>
 
@@ -31,6 +35,9 @@
     <li>
       <span class="muted">{{ t.token[:8] }}...</span>
       → {{ t.hosts }}
+      {% if t.ttl and t.ttl > 0 %}
+        <span class="muted">(TTL: {{ t.ttl }}s)</span>
+      {% endif %}
       <form method="post" action="/delete_token" style="display:inline">
         <input type="hidden" name="token" value="{{ t.token }}" />
         <button type="submit">Delete</button>

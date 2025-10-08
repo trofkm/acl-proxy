@@ -1,6 +1,6 @@
 ## ACL Proxy Auth Service (Traefik ForwardAuth + FastAPI + Redis)
 
-Minimal auth service to protect backends behind Traefik using ForwardAuth. Tokens are stored in Redis and are allowed for a comma-separated list of hosts. Includes a tiny HTML admin UI.
+Minimal auth service to protect backends behind Traefik using ForwardAuth. Tokens are hashed and stored in Redis with optional TTLs and rate limiting. Includes a tiny HTML admin UI (protected via Basic Auth).
 
 ### Architecture
 
@@ -13,7 +13,7 @@ Minimal auth service to protect backends behind Traefik using ForwardAuth. Token
 
 ### Repository Layout
 
-- `auth_service/app.py` — FastAPI app (`/auth`, `/healthz`, admin UI)
+- `auth_service/app.py` — FastAPI app (`/auth`, `/healthz`, admin UI, hashing, rate limits)
 - `auth_service/templates/index.html` — simple token manager UI
 - `auth_service/requirements.txt` — pinned dependencies
 - `auth_service/Dockerfile` — container for auth service
@@ -39,7 +39,7 @@ docker compose up --build
 http://localhost:8000/
 ```
 
-3) Create token for hosts (comma-separated), e.g. `trofkm.ru,firecrawl.trofkm.ru`.
+3) Create token for hosts (comma-separated), e.g. `trofkm.ru,firecrawl.trofkm.ru`. You will be prompted for Basic Auth (set via env). Optionally set TTL seconds.
 
 4) Test the auth endpoint:
 
@@ -68,16 +68,28 @@ curl -H "Authorization: Bearer <your_token>" \
   - `POST /create_token` (form field `hosts`)
   - `POST /delete_token` (form field `token`)
 
-### Redis Data Model
+### Security & Data Model
 
-- Key: `tokens:<token>` (hash)
+- Tokens are never stored in plaintext. We store `SHA-256(token + PEPPER)` only.
+- Key: `tokens:<sha256>` (hash)
   - Field: `hosts` → `host1,host2,...`
+  - Optional TTL is applied per-token.
+- Rate limiting: sliding buckets per token hash (`RATE_LIMIT_WINDOW_SEC`, `RATE_LIMIT_MAX`).
 
 ### Environment Variables
 
 - `REDIS_HOST` (default: `localhost`)
 - `REDIS_PORT` (default: `6379`)
 - `REDIS_DB` (default: `0`)
+- `REDIS_USERNAME` (optional)
+- `REDIS_PASSWORD` (optional; required if Redis secured)
+- `REDIS_TLS` (`true|false`, default `false`)
+- `REDIS_TLS_SKIP_VERIFY` (`true|false`, default `false`)
+- `PEPPER` (required; server-side secret for hashing)
+- `ADMIN_USER`, `ADMIN_PASS` (required for admin UI Basic Auth)
+- `TOKEN_TTL_SECONDS` (default `0`, no default TTL)
+- `RATE_LIMIT_WINDOW_SEC` (default `1`)
+- `RATE_LIMIT_MAX` (default `20`)
 
 ### Docker Image
 
@@ -105,7 +117,7 @@ containers:
     image: ghcr.io/your-org/acl-auth-service:latest
 ```
 
-2) Apply manifests:
+2) Apply manifests (includes Secrets for demo; change values):
 
 ```bash
 kubectl apply -f k8s/auth-service.yaml
@@ -162,8 +174,10 @@ spec:
 ### Security Notes
 
 - Use HTTPS on the public edge (Traefik TLS) so tokens are not sent in cleartext.
-- Consider rotating tokens regularly and minimizing allowed hosts per token.
-- Restrict access to the admin UI (e.g., network policies, basic auth, or mTLS in cluster).
+- Tokens are hashed with `PEPPER` and never stored raw. Rotate `PEPPER` by re-issuing tokens.
+- Use Redis AOF for persistence; back up AOF/RDB off-cluster.
+- Consider managed Redis (Sentinel/Cluster) for HA; test restoration regularly.
+- Restrict admin UI (Basic Auth already enabled); additionally use IP allowlists, NetworkPolicies, or mTLS.
 
 ### Troubleshooting
 

@@ -118,6 +118,32 @@ containers:
 ```
 
 2) Apply manifests (includes Secrets for demo; change values):
+3) Create ConfigMap and Secrets from your local env/values
+
+```bash
+# Non-secrets from your local .env (e.g., TOKEN_TTL_SECONDS, RATE_LIMIT_*)
+kubectl create configmap auth-service-config \
+  --from-env-file=.env \
+  -n default \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# App secrets (pepper and admin basic auth)
+kubectl create secret generic auth-service-secrets \
+  --from-literal=pepper=CHANGE_ME \
+  --from-literal=admin_user=admin \
+  --from-literal=admin_pass=CHANGE_ME \
+  -n default --dry-run=client -o yaml | kubectl apply -f -
+
+# Redis password (used by both Redis and the app)
+kubectl create secret generic redis-auth \
+  --from-literal=password=CHANGE_ME_REDIS \
+  -n default --dry-run=client -o yaml | kubectl apply -f -
+
+# Deploy or update resources
+kubectl apply -f k8s/auth-service.yaml
+kubectl rollout restart deploy/auth-service -n default
+```
+
 
 ```bash
 kubectl apply -f k8s/auth-service.yaml

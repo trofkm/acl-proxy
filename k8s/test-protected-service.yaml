@@ -1,0 +1,58 @@
+---
+# Simple test service to verify auth middleware
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-nginx
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-nginx
+  template:
+    metadata:
+      labels:
+        app: test-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-nginx
+  namespace: default
+spec:
+  selector:
+    app: test-nginx
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Ingress with auth middleware protection
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-protected
+  namespace: default
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: default-auth-middleware@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: test.trofkm.ru
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: test-nginx
+                port:
+                  number: 80
+
+

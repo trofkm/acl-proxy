@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import os
 import secrets
@@ -62,7 +61,7 @@ def get_env(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def hash_token(raw_token: str, pepper: str) -> str:
-    # Derive stable hash for storage. Never store raw tokens.
+    # Raw tokens are never persisted.
     digest = hashlib.sha256((raw_token + pepper).encode("utf-8")).hexdigest()
     return digest
 
@@ -78,14 +77,12 @@ def admin_guard(credentials: HTTPBasicCredentials = Depends(security)) -> None:
         credentials.password, admin_pass
     )
     if not correct:
-        # Trigger browser auth prompt
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
 async def healthz() -> str:
     try:
-        # simple ping to ensure connectivity
         redis_client.ping()
         return "ok"
     except Exception:
@@ -100,7 +97,6 @@ def parse_allowed_hosts(raw_hosts: str) -> List[str]:
 
 @app.get("/auth", response_class=PlainTextResponse)
 async def auth(request: Request) -> str:
-    # Extract Bearer token
     auth_header = request.headers.get("authorization") or request.headers.get(
         "Authorization"
     )
@@ -111,14 +107,13 @@ async def auth(request: Request) -> str:
     if not token:
         raise HTTPException(status_code=401, detail="empty token")
 
-    # Hash token with pepper
     pepper = get_env("PEPPER", "")
     if not pepper:
         raise HTTPException(status_code=503, detail="server not initialized")
 
     token_hash = hash_token(token, pepper)
 
-    # Rate limiting (per token hash)
+    # Per-token hash rate limit
     window_sec = int(get_env("RATE_LIMIT_WINDOW_SEC", "1"))
     max_hits = int(get_env("RATE_LIMIT_MAX", "100"))
     now = int(time.time())
@@ -130,7 +125,6 @@ async def auth(request: Request) -> str:
     if current > max_hits:
         raise HTTPException(status_code=429, detail="rate limit exceeded")
 
-    # Load token data from redis using hash key
     token_key = f"tokens:{token_hash}"
     token_data = redis_client.hgetall(token_key)
     if not token_data:
@@ -138,7 +132,7 @@ async def auth(request: Request) -> str:
 
     allowed_hosts = parse_allowed_hosts(token_data.get("hosts", ""))
 
-    # Determine requested host (Traefik will pass X-Forwarded-Host when trustForwardHeader=true)
+    # Traefik passes X-Forwarded-Host when trustForwardHeader=true.
     requested_host = (
         request.headers.get("X-Forwarded-Host")
         or request.headers.get("x-forwarded-host")
@@ -151,10 +145,9 @@ async def auth(request: Request) -> str:
     requested_host = requested_host.lower()
 
     if allowed_hosts and requested_host not in allowed_hosts:
-        # token exists but not permitted for this host
         raise HTTPException(status_code=403, detail="forbidden for host")
 
-    # When allowed_hosts is empty, we can interpret as no access. Be explicit.
+    # Empty allowed_hosts = no access.
     if not allowed_hosts:
         raise HTTPException(status_code=403, detail="no hosts assigned for token")
 
@@ -197,7 +190,6 @@ async def index(request: Request, _: None = Depends(admin_guard)) -> HTMLRespons
                 "ttl": ttl_seconds,
             }
         )
-    # Sort by creation timestamp ascending (older first)
     tokens.sort(key=lambda t: t.get("_created_ts", 0))
 
     default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0") or 0)
@@ -210,12 +202,12 @@ async def index(request: Request, _: None = Depends(admin_guard)) -> HTMLRespons
 @app.post("/create_token")
 async def create_token(
     hosts: str = Form(...),
-    ttl_seconds: Optional[str] = Form(None),  # accept raw string; parse if provided
+    ttl_seconds: Optional[str] = Form(None),
     email: Optional[str] = Form(None),
     comment: Optional[str] = Form(None),
     _: None = Depends(admin_guard),
 ) -> JSONResponse:
-    # Generate raw token returned to user once
+    # Raw token shown only once; never stored.
     raw_token = secrets.token_urlsafe(32)
     pepper = get_env("PEPPER", "")
     if not pepper:
@@ -232,7 +224,6 @@ async def create_token(
             "created_at": str(int(time.time())),
         },
     )
-    # Optional TTL per token
     default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0") or 0)
     parsed_ttl: int = 0
     if ttl_seconds is not None and ttl_seconds != "":

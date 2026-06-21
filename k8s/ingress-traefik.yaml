@@ -1,7 +1,7 @@
 ---
-# Note: auth-service admin UI is NOT exposed externally for security reasons
-# Access it via port-forward: kubectl port-forward svc/auth-service 8000:8000
-# Then visit: http://localhost:8000
+# Admin UI is not exposed externally. Use port-forward:
+#   kubectl port-forward svc/auth-service 8000:8000
+# Then visit http://localhost:8000
 ---
 # Example: Protected service with auth middleware
 # Uncomment and modify for your services
@@ -15,7 +15,7 @@
 # spec:
 #   ingressClassName: traefik
 #   rules:
-#     - host: myapp.trofkm.ru
+#     - host: myapp.example.com
 #       http:
 #         paths:
 #           - path: /

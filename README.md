@@ -39,13 +39,13 @@ docker compose up --build
 http://localhost:8000/
 ```
 
-3) Create token for hosts (comma-separated), e.g. `trofkm.ru,firecrawl.trofkm.ru`. You will be prompted for Basic Auth (set via env). Optionally set TTL seconds.
+3) Create token for hosts (comma-separated), e.g. `example.com,subdomain.example.com`. You will be prompted for Basic Auth (set via env). Optionally set TTL seconds.
 
 4) Test the auth endpoint:
 
 ```bash
 curl -H "Authorization: Bearer <your_token>" \
-     -H "X-Forwarded-Host: trofkm.ru" \
+     -H "X-Forwarded-Host: example.com" \
      http://localhost:8000/auth
 ```
 
@@ -70,7 +70,7 @@ curl -H "Authorization: Bearer <your_token>" \
 
 ### Security & Data Model
 
-- Tokens are never stored in plaintext. We store `SHA-256(token + PEPPER)` only.
+- Stored as `SHA-256(token + PEPPER)`. Raw tokens are never persisted.
 - Key: `tokens:<sha256>` (hash)
   - Field: `hosts` → `host1,host2,...`
   - Optional TTL is applied per-token.
@@ -109,7 +109,7 @@ docker run --rm -p 8000:8000 \
 
 ### Kubernetes (k3s) Deployment
 
-1) Push your built image to a registry and update image in `k8s/auth-service.yaml`:
+1) Push your image to a registry. Update `k8s/auth-service.yaml` with the image:
 
 ```yaml
 containers:
@@ -117,42 +117,38 @@ containers:
     image: ghcr.io/your-org/acl-auth-service:latest
 ```
 
-2) Apply manifests (includes Secrets for demo; change values):
-3) Create ConfigMap and Secrets from your local env/values
+2) Create secrets and configmap:
 
 ```bash
-# Non-secrets from your local .env (e.g., TOKEN_TTL_SECONDS, RATE_LIMIT_*)
+# ConfigMap
 kubectl create configmap auth-service-config \
   --from-env-file=.env \
   -n default \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# App secrets (pepper and admin basic auth)
+# App secrets
 kubectl create secret generic auth-service-secrets \
   --from-literal=pepper=CHANGE_ME \
   --from-literal=admin_user=admin \
   --from-literal=admin_pass=CHANGE_ME \
   -n default --dry-run=client -o yaml | kubectl apply -f -
 
-# Redis password (used by both Redis and the app)
+# Redis password
 kubectl create secret generic redis-auth \
   --from-literal=password=CHANGE_ME_REDIS \
   -n default --dry-run=client -o yaml | kubectl apply -f -
-
-# Deploy or update resources
-kubectl apply -f k8s/auth-service.yaml
-kubectl rollout restart deploy/auth-service -n default
 ```
 
+3) Deploy:
 
 ```bash
 kubectl apply -f k8s/auth-service.yaml
+kubectl apply -f k8s/traefik-middleware.yaml
 kubectl apply -f k8s/ingress-traefik.yaml
+kubectl rollout restart deploy/auth-service -n default
 ```
 
-Notes:
-- The Traefik middleware in `k8s/ingress-traefik.yaml` forwards to `http://auth-service.default.svc.cluster.local:8000/auth`.
-- Add the middleware annotation to any Ingress you want protected.
+The middleware forwards auth checks to `http://auth-service.default.svc.cluster.local:8000/auth`. Add the middleware annotation to any Ingress you want protected.
 
 ### Traefik Middleware & Ingress (example)
 
@@ -185,7 +181,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.middlewares: default-auth-middleware@kubernetescrd
 spec:
   rules:
-    - host: firecrawl.trofkm.ru
+    - host: firecrawl.example.com
       http:
         paths:
           - path: /
@@ -199,11 +195,11 @@ spec:
 
 ### Security Notes
 
-- Use HTTPS on the public edge (Traefik TLS) so tokens are not sent in cleartext.
+- Use HTTPS (Traefik TLS) to encrypt tokens in transit.
 - Tokens are hashed with `PEPPER` and never stored raw. Rotate `PEPPER` by re-issuing tokens.
 - Use Redis AOF for persistence; back up AOF/RDB off-cluster.
 - Consider managed Redis (Sentinel/Cluster) for HA; test restoration regularly.
-- Restrict admin UI (Basic Auth already enabled); additionally use IP allowlists, NetworkPolicies, or mTLS.
+- Restrict admin UI further with IP allowlists, NetworkPolicies, or mTLS.
 
 ### Troubleshooting
 
@@ -215,5 +211,3 @@ spec:
 ### License
 
 MIT
-
-

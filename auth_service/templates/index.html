@@ -1,80 +1,146 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <title>Token Manager</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
-    h1 { margin-bottom: 12px; }
-    form { margin: 12px 0; display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: center; }
-    input[type="text"] { width: 100%; padding: 8px; }
-    button { padding: 8px 12px; cursor: pointer; }
-    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    th, td { text-align: left; border-bottom: 1px solid #eee; padding: 8px 6px; }
-    th { color: #444; font-weight: 600; }
-    .muted { color: #666; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .nowrap { white-space: nowrap; }
-    .row { display: contents; }
-  </style>
-  </head>
-<body>
-  <h1>Token Manager</h1>
-  <form method="post" action="/create_token">
-    <div class="row">
-      <label>
-        Hosts (comma-separated):
-        <input type="text" name="hosts" placeholder="example.com,firecrawl.trofkm.ru" required>
-      </label>
-      <label>
-        Email:
-        <input type="text" name="email" placeholder="user@example.com">
-      </label>
-      <label>
-        Comment:
-        <input type="text" name="comment" placeholder="purpose or notes">
-      </label>
-      <label>
-        TTL seconds (optional):
-        <input type="text" name="ttl_seconds" placeholder="{{ default_ttl if default_ttl else '3600' }}" value="{{ default_ttl if default_ttl else '' }}">
-      </label>
-      <button type="submit">Create Token</button>
-    </div>
-  </form>
+    <head>
+        <meta charset="utf-8" />
+        <title>Token Manager</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+            body {
+                font-family: system-ui, Arial, sans-serif;
+                margin: 24px;
+            }
+            h1 {
+                margin-bottom: 12px;
+            }
+            form {
+                margin: 12px 0;
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr auto;
+                gap: 12px;
+                align-items: center;
+            }
+            input[type="text"] {
+                width: 100%;
+                padding: 8px;
+            }
+            button {
+                padding: 8px 12px;
+                cursor: pointer;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 16px;
+            }
+            th,
+            td {
+                text-align: left;
+                border-bottom: 1px solid #eee;
+                padding: 8px 6px;
+            }
+            th {
+                color: #444;
+                font-weight: 600;
+            }
+            .muted {
+                color: #666;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+            .nowrap {
+                white-space: nowrap;
+            }
+            .row {
+                display: contents;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Token Manager</h1>
+        <form method="post" action="/create_token">
+            <div class="row">
+                <label>
+                    Hosts (comma-separated):
+                    <input
+                        type="text"
+                        name="hosts"
+                        placeholder="example.com,firecrawl.example.com"
+                        required
+                    />
+                </label>
+                <label>
+                    Email:
+                    <input
+                        type="text"
+                        name="email"
+                        placeholder="user@example.com"
+                    />
+                </label>
+                <label>
+                    Comment:
+                    <input
+                        type="text"
+                        name="comment"
+                        placeholder="purpose or notes"
+                    />
+                </label>
+                <label>
+                    TTL seconds (optional):
+                    <input
+                        type="text"
+                        name="ttl_seconds"
+                        placeholder="{{ default_ttl if default_ttl else '3600' }}"
+                        value="{{ default_ttl if default_ttl else '' }}"
+                    />
+                </label>
+                <button type="submit">Create Token</button>
+            </div>
+        </form>
 
-  <h2>Current Tokens</h2>
-  <table>
-    <thead>
-      <tr>
-        <th class="nowrap">Token</th>
-        <th>Hosts</th>
-        <th>Email</th>
-        <th>Comment</th>
-        <th class="nowrap">Created</th>
-        <th class="nowrap">TTL (s)</th>
-        <th class="nowrap">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for t in tokens %}
-      <tr>
-        <td class="muted nowrap">{{ t.token[:8] }}...</td>
-        <td>{{ t.hosts }}</td>
-        <td class="muted">{{ t.email }}</td>
-        <td>{{ t.comment }}</td>
-        <td class="muted nowrap">{% if t.created_at %}{{ t.created_at }}{% else %}—{% endif %}</td>
-        <td class="muted nowrap">{% if t.ttl and t.ttl > 0 %}{{ t.ttl }}{% else %}—{% endif %}</td>
-        <td class="nowrap">
-          <form method="post" action="/delete_token" style="display:inline">
-            <input type="hidden" name="token" value="{{ t.token }}" />
-            <button type="submit">Delete</button>
-          </form>
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</body>
+        <h2>Current Tokens</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th class="nowrap">Token</th>
+                    <th>Hosts</th>
+                    <th>Email</th>
+                    <th>Comment</th>
+                    <th class="nowrap">Created</th>
+                    <th class="nowrap">TTL (s)</th>
+                    <th class="nowrap">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tokens %}
+                <tr>
+                    <td class="muted nowrap">{{ t.token[:8] }}...</td>
+                    <td>{{ t.hosts }}</td>
+                    <td class="muted">{{ t.email }}</td>
+                    <td>{{ t.comment }}</td>
+                    <td class="muted nowrap">
+                        {% if t.created_at %}{{ t.created_at }}{% else %}—{%
+                        endif %}
+                    </td>
+                    <td class="muted nowrap">
+                        {% if t.ttl and t.ttl > 0 %}{{ t.ttl }}{% else %}—{%
+                        endif %}
+                    </td>
+                    <td class="nowrap">
+                        <form
+                            method="post"
+                            action="/delete_token"
+                            style="display: inline"
+                        >
+                            <input
+                                type="hidden"
+                                name="token"
+                                value="{{ t.token }}"
+                            />
+                            <button type="submit">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </body>
 </html>
-
-

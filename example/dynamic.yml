@@ -1,0 +1,20 @@
+# Dynamic config: routers, middlewares, services
+http:
+  middlewares:
+    auth:
+      forwardAuth:
+        address: "http://auth-service:8000/auth"
+        trustForwardHeader: true
+
+  routers:
+    whoami:
+      rule: "Host(`whoami.localhost`)"
+      entryPoints: ["web"]
+      middlewares: ["auth"]
+      service: whoami
+
+  services:
+    whoami:
+      loadBalancer:
+        servers:
+          - url: "http://whoami:80"

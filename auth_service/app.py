@@ -1,26 +1,37 @@
-import os
-import time
 import base64
 import hashlib
+import os
+import secrets
+import time
 from typing import List, Optional
 
-from fastapi import FastAPI, Request, HTTPException, Form, Depends
-from fastapi.responses import PlainTextResponse, JSONResponse, HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-import secrets
 import redis
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.templating import Jinja2Templates
 
 
 def get_redis_client() -> redis.Redis:
     use_tls = os.getenv("REDIS_TLS", "false").lower() in {"1", "true", "yes"}
-    tls_skip_verify = os.getenv("REDIS_TLS_SKIP_VERIFY", "false").lower() in {"1", "true", "yes"}
+    tls_skip_verify = os.getenv("REDIS_TLS_SKIP_VERIFY", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     ssl_params = {}
     if use_tls:
-        ssl_params.update({
-            "ssl": True,
-            "ssl_cert_reqs": None if tls_skip_verify else "required",
-        })
+        ssl_params.update(
+            {
+                "ssl": True,
+                "ssl_cert_reqs": None if tls_skip_verify else "required",
+            }
+        )
 
     password = os.getenv("REDIS_PASSWORD")
     username = os.getenv("REDIS_USERNAME")
@@ -39,7 +50,9 @@ def get_redis_client() -> redis.Redis:
 redis_client = get_redis_client()
 
 app = FastAPI(title="ACL Proxy Auth Service", version="0.1.0")
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+templates = Jinja2Templates(
+    directory=os.path.join(os.path.dirname(__file__), "templates")
+)
 security = HTTPBasic()
 
 
@@ -61,7 +74,9 @@ def admin_guard(credentials: HTTPBasicCredentials = Depends(security)) -> None:
         # If not configured, deny rather than allow
         raise HTTPException(status_code=503, detail="admin auth not configured")
 
-    correct = credentials.username == admin_user and secrets.compare_digest(credentials.password, admin_pass)
+    correct = credentials.username == admin_user and secrets.compare_digest(
+        credentials.password, admin_pass
+    )
     if not correct:
         # Trigger browser auth prompt
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -86,7 +101,9 @@ def parse_allowed_hosts(raw_hosts: str) -> List[str]:
 @app.get("/auth", response_class=PlainTextResponse)
 async def auth(request: Request) -> str:
     # Extract Bearer token
-    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    auth_header = request.headers.get("authorization") or request.headers.get(
+        "Authorization"
+    )
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer token")
 
@@ -103,7 +120,7 @@ async def auth(request: Request) -> str:
 
     # Rate limiting (per token hash)
     window_sec = int(get_env("RATE_LIMIT_WINDOW_SEC", "1"))
-    max_hits = int(get_env("RATE_LIMIT_MAX", "20"))
+    max_hits = int(get_env("RATE_LIMIT_MAX", "100"))
     now = int(time.time())
     window_bucket = now - (now % window_sec)
     rl_key = f"ratelimit:{token_hash}:{window_bucket}"
@@ -146,7 +163,7 @@ async def auth(request: Request) -> str:
 
 
 @app.get("/debug/token/{token}")
-async def debug_token(token: str) -> JSONResponse:
+async def debug_token(token: str, _: None = Depends(admin_guard)) -> JSONResponse:
     token_key = f"tokens:{token}"
     token_data = redis_client.hgetall(token_key)
     return JSONResponse({"exists": bool(token_data), "data": token_data})
@@ -169,15 +186,17 @@ async def index(request: Request, _: None = Depends(admin_guard)) -> HTMLRespons
                 created_iso = time.strftime("%Y-%m-%d %H:%M", time.gmtime(created_ts))
             except Exception:
                 created_iso = ""
-        tokens.append({
-            "token": token_value,
-            "hosts": data.get("hosts", ""),
-            "email": data.get("email", ""),
-            "comment": data.get("comment", ""),
-            "created_at": created_iso,
-            "_created_ts": created_ts,
-            "ttl": ttl_seconds,
-        })
+        tokens.append(
+            {
+                "token": token_value,
+                "hosts": data.get("hosts", ""),
+                "email": data.get("email", ""),
+                "comment": data.get("comment", ""),
+                "created_at": created_iso,
+                "_created_ts": created_ts,
+                "ttl": ttl_seconds,
+            }
+        )
     # Sort by creation timestamp ascending (older first)
     tokens.sort(key=lambda t: t.get("_created_ts", 0))
 
@@ -204,12 +223,15 @@ async def create_token(
     token_hash_value = hash_token(raw_token, pepper)
 
     key = f"tokens:{token_hash_value}"
-    redis_client.hset(key, mapping={
-        "hosts": hosts,
-        "email": (email or ""),
-        "comment": (comment or ""),
-        "created_at": str(int(time.time())),
-    })
+    redis_client.hset(
+        key,
+        mapping={
+            "hosts": hosts,
+            "email": (email or ""),
+            "comment": (comment or ""),
+            "created_at": str(int(time.time())),
+        },
+    )
     # Optional TTL per token
     default_ttl = int(get_env("TOKEN_TTL_SECONDS", "0") or 0)
     parsed_ttl: int = 0
@@ -226,8 +248,8 @@ async def create_token(
 
 
 @app.post("/delete_token")
-async def delete_token(token: str = Form(...), _: None = Depends(admin_guard)) -> RedirectResponse:
+async def delete_token(
+    token: str = Form(...), _: None = Depends(admin_guard)
+) -> RedirectResponse:
     redis_client.delete(f"tokens:{token}")
     return RedirectResponse(url="/", status_code=303)
-
-

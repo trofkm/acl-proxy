@@ -89,7 +89,7 @@ curl -H "Authorization: Bearer <your_token>" \
 - `ADMIN_USER`, `ADMIN_PASS` (required for admin UI Basic Auth)
 - `TOKEN_TTL_SECONDS` (default `0`, no default TTL)
 - `RATE_LIMIT_WINDOW_SEC` (default `1`)
-- `RATE_LIMIT_MAX` (default `20`)
+- `RATE_LIMIT_MAX` (default `100`)
 
 ### Docker Image
 

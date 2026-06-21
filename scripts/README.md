@@ -2,7 +2,7 @@
 
 ## apply-secrets.sh
 
-Automatically creates and updates Kubernetes secrets and configmaps from the `.env` file.
+Creates and updates Kubernetes secrets and configmaps from `.env`.
 
 ### Usage
 
@@ -32,10 +32,10 @@ cp ../env.example ../.env
 
 ### Integration with Tilt
 
-This script is automatically executed by Tilt when you run `tilt up`. It will:
-- Run on initial startup
-- Re-run whenever the `.env` file changes
-- Ensure secrets are applied before the auth-service starts
+Tilt runs this script when you `tilt up`:
+- On first startup
+- When `.env` changes
+- Before auth-service deploys (secrets must exist first)
 
 ### Requirements
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Script to create Kubernetes secrets and configmaps from .env file
+# Create K8s secrets and configmaps from .env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -18,7 +18,7 @@ source "$ENV_FILE"
 
 echo "Creating Kubernetes secrets and configmaps..."
 
-# Create ConfigMap from .env file (non-secret configuration)
+# ConfigMap
 echo "→ Creating auth-service-config ConfigMap..."
 kubectl create configmap auth-service-config \
   --from-literal=TOKEN_TTL_SECONDS="${TOKEN_TTL_SECONDS:-36000000}" \
@@ -44,5 +44,3 @@ kubectl create secret generic redis-auth \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "✓ Successfully created/updated all secrets and configmaps"
-
-

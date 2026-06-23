@@ -1,2 +1,10 @@
 .env
+.venv
 k8s/generated/
+data/
+
+
+__pycache__
+.pytest_cache
+.ruff_cache
+.DS_Store

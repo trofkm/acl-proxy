@@ -1,213 +1,232 @@
-## ACL Proxy Auth Service (Traefik ForwardAuth + FastAPI + Redis)
+# wicket
 
-Minimal auth service to protect backends behind Traefik using ForwardAuth. Tokens are hashed and stored in Redis with optional TTLs and rate limiting. Includes a tiny HTML admin UI (protected via Basic Auth).
+> Share your self-hosted MCP servers, APIs, and dashboards with a few friends. No identity provider needed.
 
-### Architecture
 
-- Traefik (Ingress) → ForwardAuth → FastAPI auth service → backend service
-- Auth flow:
-  - Client sends `Authorization: Bearer <token>`
-  - Traefik calls `GET /auth` on this service
-  - Service checks Redis: `tokens:<token>` hash with field `hosts`
-  - If requested host is in token's allowed hosts → 200 OK; else 401/403
+I wanted to share my self-hosted service with 3 friends. And let one of them
+into my MCP server deployed on the same machine, but not the other two.
 
-### Repository Layout
+I needed:
 
-- `auth_service/app.py` — FastAPI app (`/auth`, `/healthz`, admin UI, hashing, rate limits)
-- `auth_service/templates/index.html` — simple token manager UI
-- `auth_service/requirements.txt` — pinned dependencies
-- `auth_service/Dockerfile` — container for auth service
-- `docker-compose.yml` — local stack with Redis + auth
-- `k8s/` — K8s manifests for auth service, Redis, and Traefik middleware/ingress
+- token-based auth
+- simple admin panel
+- be able to attach to the different proxies
 
-### Requirements
+I looked at what existed:
 
-- Docker / Docker Compose
-- Redis (docker-compose provides one)
+- **Authelia / Authentik / Zitadel**: full SSO, designed for companies. Overkill.
+- **tinyauth**: it does user/session auth with login UI; I want pre-shared bearer tokens for API clients, not browser sessions.
+- **OAuth2-proxy**: needs an upstream identity provider I'd have to run too.
+- **nginx basic auth**: no per-resource rules, no rotation, no administration.
 
-### Quick Start (Local)
 
-1) Start stack:
+So I built this: a FastAPI service that your reverse proxy (Caddy or Traefik) calls via forward-auth.
+Create a bearer token in the admin UI, assign it to specific hostnames, hand it to your friend. 
+
+They add `Authorization: Bearer <token>` to requests.
+
+![Token manager screenshot](docs/token_creation.png)
+
+---
+
+## Who this is for
+
+- You self-host a few services: MCP servers, scrapers, pet projects, internal APIs, dashboards
+- You want to share them with a small trusted group
+- You don't want to run an identity provider
+- You don't want to depend on a third-party SaaS
+
+## Who this is not for
+
+- You need real SSO, audit logs, or user-attribute policies: use Authelia / Authentik / Zitadel
+- You have hundreds of users: the admin UI doesn't have search or grouping yet, so it gets painful fast.
+
+## What you get
+
+- Bearer-token auth with **per-host ACL**: one token can grant access to multiple services, or just one
+- **Tiny admin UI** for issuing, and revoking tokens
+- **Token TTLs** for auto-expiry
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/trofkm/wicket
+cd wicket
+cp .env.example .env   # set env variables
+```
+
+### SQLite
 
 ```bash
 docker compose up --build
 ```
 
-2) Open admin UI:
-
-```
-http://localhost:8000/
-```
-
-3) Create token for hosts (comma-separated), e.g. `example.com,subdomain.example.com`. You will be prompted for Basic Auth (set via env). Optionally set TTL seconds.
-
-4) Test the auth endpoint:
+### Redis
 
 ```bash
-curl -H "Authorization: Bearer <your_token>" \
-     -H "X-Forwarded-Host: example.com" \
-     http://localhost:8000/auth
+docker compose -f docker-compose.redis.yml up --build
 ```
 
-- OK → `200 OK` with body `OK`
-- Wrong/missing token → `401`
-- Token without access to host → `403`
 
-### API & UI
+Open `http://localhost:8000` for the admin UI. Sign in with `ADMIN_USER` /
+`ADMIN_PASS`, create a token for your service's hostname, and wire up your
+proxy:
 
-- `GET /auth`
-  - Headers:
-    - `Authorization: Bearer <token>` (required)
-    - `X-Forwarded-Host: <requested-host>` (Traefik sets this; send manually for testing)
-  - Responses: `200 OK`, `401`, `403`
 
-- `GET /healthz` → `ok` when Redis is reachable
+### Caddy
 
-- Admin UI
-  - `GET /` — list tokens and allowed hosts, email, comment, TTL
-  - `POST /create_token` (form fields: `hosts`, optional `email`, `comment`, `ttl_seconds`)
-  - `POST /delete_token` (form field `token`)
-
-### Security & Data Model
-
-- Stored as `SHA-256(token + PEPPER)`. Raw tokens are never persisted.
-- Key: `tokens:<sha256>` (hash)
-  - Field: `hosts` → `host1,host2,...`
-  - Optional TTL is applied per-token.
-- Rate limiting: sliding buckets per token hash (`RATE_LIMIT_WINDOW_SEC`, `RATE_LIMIT_MAX`).
-
-### Environment Variables
-
-- `REDIS_HOST` (default: `localhost`)
-- `REDIS_PORT` (default: `6379`)
-- `REDIS_DB` (default: `0`)
-- `REDIS_USERNAME` (optional)
-- `REDIS_PASSWORD` (optional; required if Redis secured)
-- `REDIS_TLS` (`true|false`, default `false`)
-- `REDIS_TLS_SKIP_VERIFY` (`true|false`, default `false`)
-- `PEPPER` (required; server-side secret for hashing)
-- `ADMIN_USER`, `ADMIN_PASS` (required for admin UI Basic Auth)
-- `TOKEN_TTL_SECONDS` (default `0`, no default TTL)
-- `RATE_LIMIT_WINDOW_SEC` (default `1`)
-- `RATE_LIMIT_MAX` (default `100`)
-
-### Docker Image
-
-Build manually (if needed):
-
-```bash
-docker build -t acl-auth-service:local ./auth_service
+```caddyfile
+yourmcp.example.com {
+    forward_auth wicket:8000 {
+        uri /auth
+    }
+    reverse_proxy yourmcp:3002
+}
 ```
 
-Run manually:
-
-```bash
-docker run --rm -p 8000:8000 \
-  -e REDIS_HOST=host.docker.internal \
-  acl-auth-service:local
-```
-
-### Kubernetes (k3s) Deployment
-
-1) Push your image to a registry. Update `k8s/auth-service.yaml` with the image:
+### Traefik (Docker labels)
 
 ```yaml
-containers:
-  - name: auth-service
-    image: ghcr.io/your-org/acl-auth-service:latest
+services:
+  yourmcp:
+    labels:
+      - "traefik.http.routers.yourmcp.middlewares=wicket-auth@docker"
+      - "traefik.http.middlewares.wicket-auth.forwardauth.address=http://wicket:8000/auth"
+      - "traefik.http.middlewares.wicket-auth.forwardauth.trustForwardHeader=true"
 ```
 
-2) Create secrets and configmap:
 
-```bash
-# ConfigMap
-kubectl create configmap auth-service-config \
-  --from-env-file=.env \
-  -n default \
-  --dry-run=client -o yaml | kubectl apply -f -
+> See [`example/`](example/) for full-stack Docker Compose setups.
 
-# App secrets
-kubectl create secret generic auth-service-secrets \
-  --from-literal=pepper=CHANGE_ME \
-  --from-literal=admin_user=admin \
-  --from-literal=admin_pass=CHANGE_ME \
-  -n default --dry-run=client -o yaml | kubectl apply -f -
+---
 
-# Redis password
-kubectl create secret generic redis-auth \
-  --from-literal=password=CHANGE_ME_REDIS \
-  -n default --dry-run=client -o yaml | kubectl apply -f -
+## How it works
+
+```
+  Client
+    │
+    │  GET https://yourmcp.example.com/
+    │  Authorization: Bearer <token>
+    ▼
+  Reverse proxy
+    │
+    │  forward-auth: GET /auth
+    │  X-Forwarded-Host: yourmcp.example.com
+    ▼
+  wicket (this service)
+    │
+    │  lookup in storage
+    │  is the host in this token's allowlist?
+    ▼
 ```
 
-3) Deploy:
+The admin UI shows you the raw token only once, on creation.
 
-```bash
-kubectl apply -f k8s/auth-service.yaml
-kubectl apply -f k8s/traefik-middleware.yaml
-kubectl apply -f k8s/ingress-traefik.yaml
-kubectl rollout restart deploy/auth-service -n default
-```
+---
 
-The middleware forwards auth checks to `http://auth-service.default.svc.cluster.local:8000/auth`. Add the middleware annotation to any Ingress you want protected.
+## API reference
 
-### Traefik Middleware & Ingress (example)
+### `GET /auth`
 
-`k8s/ingress-traefik.yaml` defines:
+Your reverse proxy calls this endpoint. Returns the verdict for a single request.
 
-- Middleware:
+| Header                  | Notes                                         |
+|-------------------------|-----------------------------------------------|
+| `Authorization`         | `Bearer <token>`,  **Required.**              |
+| `X-Forwarded-Host`      | Set by the reverse proxy. **Required.**       |
 
-```yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: auth-middleware
-  namespace: default
-spec:
-  forwardAuth:
-    address: "http://auth-service.default.svc.cluster.local:8000/auth"
-    trustForwardHeader: true
-```
+Responses: `200 OK` (allow), `400` (missing `X-Forwarded-Host`), `401` (missing/invalid token or host not allowed), `503` (store unavailable).
 
-- Ingress (example backend service `firecrawl-service`):
+### `GET /healthz`
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: firecrawl
-  namespace: default
-  annotations:
-    kubernetes.io/ingress.class: traefik
-    traefik.ingress.kubernetes.io/router.middlewares: default-auth-middleware@kubernetescrd
-spec:
-  rules:
-    - host: firecrawl.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: firecrawl-service
-                port:
-                  number: 80
-```
+Always `200 OK`. Liveness probe.
 
-### Security Notes
+### `GET /readyz`
 
-- Use HTTPS (Traefik TLS) to encrypt tokens in transit.
-- Tokens are hashed with `PEPPER` and never stored raw. Rotate `PEPPER` by re-issuing tokens.
-- Use Redis AOF for persistence; back up AOF/RDB off-cluster.
-- Consider managed Redis (Sentinel/Cluster) for HA; test restoration regularly.
-- Restrict admin UI further with IP allowlists, NetworkPolicies, or mTLS.
+`200 OK` when the storage backend is reachable, otherwise `503`. Readiness probe.
 
-### Troubleshooting
+### `GET /metrics`
 
-- `401 missing bearer token` — ensure `Authorization: Bearer <token>` is present.
-- `401 invalid token` — token not found in Redis; create via UI.
-- `403 forbidden for host` — host not in token's `hosts` list.
-- `503 redis unavailable` — check Redis connection/env vars.
+Prometheus metrics endpoint. Exposes:
 
-### License
+| Metric | Type | Description |
+|--------|------|-------------|
+| `http_requests_total` | counter | Request count by method, handler, and status |
+| `http_request_duration_seconds` | histogram | Request latency |
+| `wicket_store_health` | gauge | Storage health (1 = ok, 0 = down) |
+
+### Admin UI (Basic Auth)
+
+- `GET /`: token manager
+- `POST /create_token`: fields: `hosts` (required, comma-separated), `email`, `comment`, `ttl_seconds`
+- `POST /delete_token`: field: `token`
+
+---
+
+## Storage backends
+
+Supports two storage backends, selected via `STORAGE_BACKEND`:
+
+| Backend | Best for | Notes |
+|---------|----------|-------|
+| `sqlite`| Single instance, simple setup | Easy to use. Feets 99% of usecase. |
+| `redis` | Multiple instances, or if you already run Redis. | Use this if you don't like sqlite or you have highload. |
+
+
+## Environment variables
+
+| Variable                      | Default       | Notes                                |
+|-------------------------------|---------------|--------------------------------------|
+| `PEPPER`                      | *required*    | Server-side secret for hashing       |
+| `ADMIN_USER`                  | *required*    | Admin UI Basic Auth                  |
+| `ADMIN_PASS`                  | *required*    | Admin UI Basic Auth                  |
+| `STORAGE_BACKEND`             | `sqlite`      | `sqlite` or `redis`                  |
+| `SQLITE_PATH`                 | `/data/tokens.db` | Path to SQLite file (sqlite backend only) |
+| `TOKEN_TTL_SECONDS`           | `0`           | `0` = no default TTL                 |
+| `AUTH_FAILURE_WINDOW_SECONDS` | `60`          | Sliding window for brute-force detection (seconds) |
+| `AUTH_MAX_FAILURES`           | `10`          | Max failed auth attempts per window before 429     |
+
+**Redis backend only**:
+
+| Variable                      | Default       | Notes                                |
+|-------------------------------|---------------|--------------------------------------|
+| `REDIS_HOST`                  | `localhost`   |                                      |
+| `REDIS_PORT`                  | `6379`        |                                      |
+| `REDIS_DB`                    | `0`           |                                      |
+| `REDIS_USERNAME`              | *(none)*      | Optional                             |
+| `REDIS_PASSWORD`              | *(none)*      | Optional                             |
+| `REDIS_TLS`                   | `false`       |                                      |
+| `REDIS_TLS_SKIP_VERIFY`       | `false`       |                                      |
+| `REDIS_CA_CERTS`              | *(none)*      | Path to CA bundle for TLS verify     |
+| `REDIS_SOCKET_TIMEOUT`        | `5.0`         | Timeout per operation (seconds)      |
+| `REDIS_SOCKET_CONNECT_TIMEOUT`| `2.0`         | Timeout for initial connect (seconds)|
+| `REDIS_MAX_CONNECTIONS`       | `20`          | Connection pool size                 |
+| `REDIS_HEALTH_CHECK_INTERVAL` | `30`          | Connection health check (seconds)    |
+| `REDIS_RETRY_COUNT`           | `3`           | Retries on errors                    |
+| `REDIS_CLIENT_NAME`           | `wicket`         | Shows in redis `CLIENT LIST`      |
+
+---
+
+## Security notes
+
+- **Front this with HTTPS**  Bearer tokens are sensitive. Don't send them over plain HTTP.
+- The admin UI uses Basic Auth. For exposed deployments, add an IP allowlist, a NetworkPolicy, mTLS, or put the UI behind a separate route.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| `400 missing X-Forwarded-Host` | Reverse proxy isn't setting `X-Forwarded-Host`. Check `trustForwardHeader` or equivalent. |
+| `401 missing bearer token` | Reverse proxy isn't forwarding `Authorization` |
+| `401 invalid token`        | Token isn't in the store (deleted/expired), or the host is not in the token's allowlist |
+| `503 store unavailable`    | Redis is down, or no write permissions for sqlite |
+
+---
+
+## License
 
 MIT

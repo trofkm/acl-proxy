@@ -1,0 +1,44 @@
+[project]
+name = "wicket"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.20.0",
+    "fastapi>=0.115.0",
+    "prometheus-fastapi-instrumentator>=7.1.0",
+    "pydantic-settings>=2.0",
+    "uvicorn[standard]>=0.30.6",
+    "redis>=5.0.7",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.9",
+    "structlog>=26.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "bandit[toml]>=1.7.0",
+    "httpx>=0.28.1",
+    "pip-audit>=2.7.0",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.bandit]
+severity = ["high"]
+confidence = ["high"]
+targets = ["."]
+exclude_dirs = [".venv", ".ruff_cache", ".pytest_cache", "__pycache__"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,33 +1,28 @@
-version: "3.8"
 services:
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-
-  auth-service:
+  wicket:
     build:
       context: auth_service
       dockerfile: Dockerfile
+    init: true
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - PEPPER=${PEPPER}
-      - ADMIN_USER=${ADMIN_USER}
-      - ADMIN_PASS=${ADMIN_PASS}
-      - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS}
-      - RATE_LIMIT_WINDOW_SEC=${RATE_LIMIT_WINDOW_SEC}
-      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX}
+      STORAGE_BACKEND: sqlite
+      SQLITE_PATH: /data/tokens.db
+      PEPPER: ${PEPPER}
+      ADMIN_USER: ${ADMIN_USER}
+      ADMIN_PASS: ${ADMIN_PASS}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-0}
     ports:
-      - "8000:8000"
-    depends_on:
-      - redis
-
-volumes:
-  redis-data: {}
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"

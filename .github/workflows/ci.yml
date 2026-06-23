@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: auth_service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --group dev
+      - name: Check formatting
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: auth_service
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --group dev
+      - name: Bandit
+        run: uv run bandit -r . -c pyproject.toml --severity-level high --confidence-level high
+      - name: pip-audit
+        run: uv run pip-audit
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trivy FS
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: auth_service
+          severity: CRITICAL,HIGH
+          exit-code: 1
+
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: auth_service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --group dev
+      - run: uv run pytest

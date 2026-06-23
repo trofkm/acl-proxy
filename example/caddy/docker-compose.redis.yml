@@ -1,0 +1,51 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:-test}",
+      ]
+    expose:
+      - "6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-test}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  wicket:
+    build:
+      context: ../../auth_service
+      dockerfile: Dockerfile
+    init: true
+    environment:
+      STORAGE_BACKEND: redis
+      PEPPER: ${PEPPER:-test-pepper}
+      ADMIN_USER: ${ADMIN_USER:-test-admin}
+      ADMIN_PASS: ${ADMIN_PASS:-test-admin}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-0}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-test}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+  whoami:
+    image: traefik/whoami:latest

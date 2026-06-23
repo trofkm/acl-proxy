@@ -3,7 +3,7 @@ http:
   middlewares:
     auth:
       forwardAuth:
-        address: "http://auth-service:8000/auth"
+        address: "http://wicket:8000/auth"
         trustForwardHeader: true
 
   routers:

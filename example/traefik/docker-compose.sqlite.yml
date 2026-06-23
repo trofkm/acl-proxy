@@ -1,0 +1,29 @@
+services:
+  wicket:
+    build:
+      context: ../../auth_service
+      dockerfile: Dockerfile
+    init: true
+    environment:
+      STORAGE_BACKEND: sqlite
+      PEPPER: ${PEPPER:-test-pepper}
+      ADMIN_USER: ${ADMIN_USER:-test-admin}
+      ADMIN_PASS: ${ADMIN_PASS:-test-admin}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-0}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.3
+    command:
+      - "--configfile=/etc/traefik/traefik.yml"
+    ports:
+      - "8080:80"
+      - "8081:8080"
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+
+  whoami:
+    image: traefik/whoami:latest

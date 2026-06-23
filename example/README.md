@@ -1,11 +1,33 @@
-# ACL Proxy test bench
+# Wicket test bench
 
-Runs Redis, Auth Service, Traefik (ForwardAuth), and a whoami backend.
+This test bench runs the auth service, a reverse proxy with ForwardAuth, and a whoami backend.
+
+Two proxy variants: **Traefik** and **Caddy**. Each supports two storage backends.
 
 ## Start
 
+Traefik + SQLite:
+
 ```bash
-docker compose -f example/docker-compose.yml up --build
+docker compose -f example/traefik/docker-compose.sqlite.yml up --build
+```
+
+Traefik + Redis:
+
+```bash
+docker compose -f example/traefik/docker-compose.redis.yml up --build
+```
+
+Caddy + SQLite:
+
+```bash
+docker compose -f example/caddy/docker-compose.sqlite.yml up --build
+```
+
+Caddy + Redis:
+
+```bash
+docker compose -f example/caddy/docker-compose.redis.yml up --build
 ```
 
 ## Ports
@@ -13,20 +35,25 @@ docker compose -f example/docker-compose.yml up --build
 | Port | Purpose |
 |------|---------|
 | 8000 | Auth service admin UI |
-| 8080 | Traefik entrypoint |
+| 8080 | Proxy entrypoint |
+
+Traefik only:
+
+| Port | Purpose |
+|------|---------|
 | 8081 | Traefik dashboard |
 
 ## Test Flow
 
 ### 1. Create a token
 
-Open http://localhost:8000, log in with `admin / admin`.
+Open http://localhost:8000, log in with `test-admin / test-admin`.
 
 Enter `whoami.localhost` in **Hosts**, click **Create Token**.
 
 Copy the `token` value from the response.
 
-### 2. Request without token → 401
+### 2. Request without token: 401
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" \
@@ -34,7 +61,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
   http://localhost:8080/
 ```
 
-### 3. Request with token → 200
+### 3. Request with token: 200
 
 ```bash
 curl -H "Host: whoami.localhost" \
@@ -44,7 +71,10 @@ curl -H "Host: whoami.localhost" \
 
 Returns whoami output: IP, headers, `X-Forwarded-Host`.
 
-### 4. Token for a different host → 403
+### 4. Token for a different host: not routed
+
+The proxy only routes requests with `Host: whoami.localhost`. A request with a different host
+does not reach the auth service.
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" \
@@ -53,21 +83,13 @@ curl -s -o /dev/null -w "%{http_code}\n" \
   http://localhost:8080/
 ```
 
-### 5. Rate limit → 429
-
-```bash
-for i in $(seq 1 110); do
-  curl -s -o /dev/null -w "%{http_code}\n" \
-    -H "Host: whoami.localhost" \
-    -H "Authorization: Bearer <TOKEN>" \
-    http://localhost:8080/
-done
-```
-
-First 100 requests → `200`, then `429`.
+Traefik returns `404`, Caddy returns `200` with empty body.
 
 ## Stop
 
 ```bash
-docker compose -f example/docker-compose.yml down -v
+docker compose -f example/traefik/docker-compose.sqlite.yml down -v
+docker compose -f example/traefik/docker-compose.redis.yml down -v
+docker compose -f example/caddy/docker-compose.sqlite.yml down -v
+docker compose -f example/caddy/docker-compose.redis.yml down -v
 ```

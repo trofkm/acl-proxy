@@ -5,11 +5,38 @@ __pycache__/
 
 # Secrets
 .env
+.env.*
+*.pem
+*.key
 
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Docker
 Dockerfile
 .dockerignore
+docker-compose*.yml
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docs / Misc
+*.md
+*.log
+*.tmp
+.DS_Store
+.ruff_cache/
+.pytest_cache/
+
+tests/

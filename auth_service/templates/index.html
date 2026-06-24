@@ -1,82 +1,38 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <meta charset="utf-8" />
-        <title>Token Manager</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <style>
-            body {
-                font-family: system-ui, Arial, sans-serif;
-                margin: 24px;
-            }
-            h1 {
-                margin-bottom: 12px;
-            }
-            form {
-                margin: 12px 0;
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr auto;
-                gap: 12px;
-                align-items: center;
-            }
-            input[type="text"] {
-                width: 100%;
-                padding: 8px;
-            }
-            button {
-                padding: 8px 12px;
-                cursor: pointer;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 16px;
-            }
-            th,
-            td {
-                text-align: left;
-                border-bottom: 1px solid #eee;
-                padding: 8px 6px;
-            }
-            th {
-                color: #444;
-                font-weight: 600;
-            }
-            .muted {
-                color: #666;
-                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            }
-            .nowrap {
-                white-space: nowrap;
-            }
-            .row {
-                display: contents;
-            }
-        </style>
+        <title>Wicket &middot; Token Manager</title>
+        <link rel="stylesheet" href="/static/css/pico.classless.min.css" />
+        <link rel="stylesheet" href="/static/css/app.css" />
     </head>
     <body>
-        <h1>Token Manager</h1>
-        <form method="post" action="/create_token">
-            <div class="row">
+        <main>
+            <h1>Token Manager</h1>
+
+            <form id="create-form" autocomplete="off">
                 <label>
-                    Hosts (comma-separated):
+                    Hosts (comma-separated)
                     <input
                         type="text"
                         name="hosts"
-                        placeholder="example.com,firecrawl.example.com"
+                        placeholder="example.com,*.example.com,192.168.1.1:8080"
                         required
                     />
                 </label>
                 <label>
-                    Email:
+                    Email (optional)
                     <input
-                        type="text"
+                        type="email"
                         name="email"
+                        id="email-input"
                         placeholder="user@example.com"
                     />
+                    <small class="field-error" id="email-error"></small>
                 </label>
                 <label>
-                    Comment:
+                    Comment (optional)
                     <input
                         type="text"
                         name="comment"
@@ -84,63 +40,103 @@
                     />
                 </label>
                 <label>
-                    TTL seconds (optional):
+                    TTL seconds (optional)
                     <input
-                        type="text"
+                        type="number"
                         name="ttl_seconds"
-                        placeholder="{{ default_ttl if default_ttl else '3600' }}"
-                        value="{{ default_ttl if default_ttl else '' }}"
+                        id="ttl-input"
+                        min="0"
+                        placeholder="3600"
                     />
                 </label>
+                <div class="ttl-presets">
+                    <button type="button" class="ttl-preset" data-ttl="3600">
+                        1 hour
+                    </button>
+                    <button type="button" class="ttl-preset" data-ttl="86400">
+                        1 day
+                    </button>
+                    <button type="button" class="ttl-preset" data-ttl="604800">
+                        1 week
+                    </button>
+                    <button type="button" class="ttl-preset" data-ttl="2592000">
+                        30 days
+                    </button>
+                    <button type="button" class="ttl-preset" data-ttl="0">
+                        No expiry
+                    </button>
+                </div>
                 <button type="submit">Create Token</button>
-            </div>
-        </form>
+            </form>
 
-        <h2>Current Tokens</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th class="nowrap">Token</th>
-                    <th>Hosts</th>
-                    <th>Email</th>
-                    <th>Comment</th>
-                    <th class="nowrap">Created</th>
-                    <th class="nowrap">TTL (s)</th>
-                    <th class="nowrap">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for t in tokens %}
-                <tr>
-                    <td class="muted nowrap">{{ t.token[:8] }}...</td>
-                    <td>{{ t.hosts }}</td>
-                    <td class="muted">{{ t.email }}</td>
-                    <td>{{ t.comment }}</td>
-                    <td class="muted nowrap">
-                        {% if t.created_at %}{{ t.created_at }}{% else %}—{%
-                        endif %}
-                    </td>
-                    <td class="muted nowrap">
-                        {% if t.ttl and t.ttl > 0 %}{{ t.ttl }}{% else %}—{%
-                        endif %}
-                    </td>
-                    <td class="nowrap">
-                        <form
-                            method="post"
-                            action="/delete_token"
-                            style="display: inline"
-                        >
-                            <input
-                                type="hidden"
-                                name="token"
-                                value="{{ t.token }}"
-                            />
-                            <button type="submit">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+            <h2>Current Tokens <span id="token-count"></span></h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Token</th>
+                        <th>Hosts</th>
+                        <th>Email</th>
+                        <th>Comment</th>
+                        <th>Created</th>
+                        <th>TTL</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="token-table-body"></tbody>
+            </table>
+            <nav id="pagination"></nav>
+        </main>
+
+        <dialog id="token-dialog">
+            <article>
+                <header>
+                    <h3>Token created</h3>
+                </header>
+                <p>
+                    <strong
+                        >Save this token now. For security reasons it will not
+                        be shown again.</strong
+                    >
+                    If you lose it, you&rsquo;ll need to issue a new one.
+                </p>
+                <input type="text" id="token-value" readonly value="" />
+                <footer>
+                    <button type="button" id="copy-btn">
+                        Copy to clipboard
+                    </button>
+                    <button type="button" id="done-btn" class="secondary">
+                        Done
+                    </button>
+                </footer>
+            </article>
+        </dialog>
+
+        <dialog id="confirm-dialog">
+            <article>
+                <header>
+                    <h3>Delete token</h3>
+                </header>
+                <p>
+                    You're about to delete token
+                    <code id="confirm-token-prefix"></code>
+                    for <strong id="confirm-token-hosts"></strong>.
+                </p>
+                <p><strong>This action cannot be undone.</strong></p>
+                <footer>
+                    <button type="button" id="confirm-cancel" class="secondary">
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        id="confirm-delete"
+                        class="destructive"
+                    >
+                        Delete
+                    </button>
+                </footer>
+            </article>
+        </dialog>
+
+        <script src="/static/js/app.js"></script>
     </body>
 </html>

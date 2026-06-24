@@ -1,0 +1,6 @@
+http://whoami.localhost {
+	forward_auth wicket:8000 {
+		uri /auth
+	}
+	reverse_proxy whoami:80
+}

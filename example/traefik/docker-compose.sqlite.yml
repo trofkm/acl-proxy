@@ -10,6 +10,9 @@ services:
       ADMIN_USER: ${ADMIN_USER:-test-admin}
       ADMIN_PASS: ${ADMIN_PASS:-test-admin}
       TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-0}
+      SQLITE_PATH: /data/tokens.db
+    volumes:
+      - wicket_data:/data
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -27,3 +30,6 @@ services:
 
   whoami:
     image: traefik/whoami:latest
+
+volumes:
+  wicket_data:

@@ -54,7 +54,7 @@ They add `Authorization: Bearer <token>` to requests.
 ```bash
 git clone https://github.com/trofkm/wicket
 cd wicket
-cp .env.example .env   # set env variables
+cp env.example .env   # set env variables
 ```
 
 ### SQLite
@@ -171,7 +171,7 @@ Supports two storage backends, selected via `STORAGE_BACKEND`:
 
 | Backend | Best for | Notes |
 |---------|----------|-------|
-| `sqlite`| Single instance, simple setup | Easy to use. Feets 99% of usecase. |
+| `sqlite`| Single instance, simple setup | Easy to use. Fits 99% of usecase. |
 | `redis` | Multiple instances, or if you already run Redis. | Use this if you don't like sqlite or you have highload. |
 
 
